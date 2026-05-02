@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GitHub Forest Hunter</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #050804; touch-action: none; font-family: sans-serif; }
+        #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 5px; z-index: 30; pointer-events: none; border-left: 4px solid #4caf50; }
+        #loading-screen { position: absolute; width: 100%; height: 100%; background: #000; color: #4caf50; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; border: 1px solid red; border-radius: 50%; transform: translate(-50%, -50%); z-index: 15; }
+        .controls { position: absolute; bottom: 20px; z-index: 20; display: flex; gap: 10px; }
+        #movement { left: 20px; display: grid; grid-template-columns: repeat(3, 70px); gap: 5px; }
+        #actions { right: 20px; flex-direction: column; }
+        .btn { width: 70px; height: 70px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; display: flex; justify-content: center; align-items: center; border-radius: 50%; font-weight: bold; backdrop-filter: blur(5px); }
+        #look-area { position: absolute; top: 0; right: 0; width: 60%; height: 80%; z-index: 5; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/MTLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/TDSLoader.js"></script>
+</head>
+<body>
+
+<div id="loading-screen"><h1>LOADING FOREST</h1><p>Downloading Assets from GitHub...</p></div>
+<div id="ui">SCORE: <span id="score">0</span></div>
+<div id="crosshair"></div>
+<div id="look-area"></div>
+
+<div class="controls" id="movement">
+    <div style="grid-column:2" class="btn" id="w">W</div>
+    <div style="grid-column:1" class="btn" id="a">A</div>
+    <div style="grid-column:2" class="btn" id="s">S</div>
+    <div style="grid-column:3" class="btn" id="d">D</div>
+</div>
+
+<div class="controls" id="actions">
+    <div class="btn" id="fire" style="background:rgba(255,0,0,0.4); border-radius:10px;">FIRE</div>
+    <div class="btn" id="aim" style="border-radius:10px;">ZOOM</div>
+</div>
+
+<script>
+// GitHub Pages will look for these in the same root folder
+const LINKS = {
+    WOLF_OBJ: './10055_Gray_Wolf_v1_L3.obj',
+    WOLF_MTL: './10055_Gray_Wolf_v1_L3.mtl',
+    ELK_OBJ: './uploads_files_5014754_Elk_Quad.obj',
+    DEER_OBJ: './uploads_files_6919549_deer.obj',
+    TREE_3DS: './hemlock.3ds',
+    GRASS_3DS: './grass-block.3DS'
+};
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x6a7d8a);
+scene.fog = new THREE.FogExp2(0x6a7d8a, 0.01);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({antialias: true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1);
+sun.position.set(10, 20, 10);
+scene.add(sun);
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshStandardMaterial({color: 0x1a2416}));
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+const manager = new THREE.LoadingManager(() => {
+    document.getElementById('loading-screen').style.display = 'none';
+    spawn();
+});
+
+const objL = new THREE.OBJLoader(manager);
+const mtlL = new THREE.MTLLoader(manager);
+const tdsL = new THREE.TDSLoader(manager);
+
+let masters = { wolf: null, elk: null, deer: null, tree: null, grass: null };
+const targets = [];
+
+// 1. Load Wolf
+mtlL.load(LINKS.WOLF_MTL, (m) => {
+    m.preload();
+    objL.setMaterials(m).load(LINKS.WOLF_OBJ, (o) => { 
+        masters.wolf = o; o.scale.set(0.012, 0.012, 0.012); o.rotation.x = -Math.PI/2;
+    });
+});
+
+// 2. Load Elk
+objL.load(LINKS.ELK_OBJ, (o) => {
+    masters.elk = o; o.scale.set(1.2, 1.2, 1.2);
+    o.traverse(c => { if(c.isMesh) c.material = new THREE.MeshStandardMaterial({color: 0x5e412f}); });
+});
+
+// 3. Load Deer
+objL.load(LINKS.DEER_OBJ, (o) => {
+    masters.deer = o; o.scale.set(0.0005, 0.0005, 0.0005);
+    o.traverse(c => { if(c.isMesh) c.material = new THREE.MeshStandardMaterial({color: 0x8b5a2b}); });
+});
+
+// 4. Load Tree
+tdsL.load(LINKS.TREE_3DS, (o) => {
+    masters.tree = o; o.scale.set(0.05, 0.05, 0.05);
+});
+
+// 5. Load Grass
+tdsL.load(LINKS.GRASS_3DS, (o) => {
+    masters.grass = o; o.scale.set(0.01, 0.01, 0.01);
+});
+
+function spawn() {
+    for(let i=0; i<60; i++) {
+        if(masters.tree) {
+            const t = masters.tree.clone();
+            t.position.set(Math.random()*400-200, 0, Math.random()*400-200);
+            scene.add(t);
+        }
+        if(masters.grass) {
+            const g = masters.grass.clone();
+            g.position.set(Math.random()*300-150, 0, Math.random()*300-150);
+            scene.add(g);
+        }
+    }
+    const createAnim = (m, type) => {
+        if(!m) return;
+        const a = m.clone();
+        a.position.set(Math.random()*200-100, 0, Math.random()*200-100);
+        a.userData = { type: type, dead: false, speed: 0.04 + Math.random()*0.02, turn: (Math.random()-0.5)*0.01 };
+        scene.add(a);
+        targets.push(a);
+    }
+    for(let i=0; i<4; i++) { createAnim(masters.wolf, 'wolf'); createAnim(masters.deer, 'deer'); createAnim(masters.elk, 'elk'); }
+}
+
+// Controls
+let yaw = 0, pitch = 0, score = 0, isZoom = false;
+const keys = {w:0, a:0, s:0, d:0};
+['w','a','s','d'].forEach(k => {
+    const b = document.getElementById(k);
+    b.ontouchstart = (e) => { e.preventDefault(); keys[k] = 1; };
+    b.ontouchend = (e) => { e.preventDefault(); keys[k] = 0; };
+});
+
+document.getElementById('aim').ontouchstart = (e) => {
+    e.preventDefault();
+    isZoom = !isZoom;
+    camera.fov = isZoom ? 25 : 60;
+    camera.updateProjectionMatrix();
+}
+
+document.getElementById('fire').ontouchstart = (e) => {
+    e.preventDefault();
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(0,0), camera);
+    const hits = ray.intersectObjects(targets, true);
+    if(hits.length > 0) {
+        let obj = hits[0].object;
+        while(obj.parent && !obj.userData.type) obj = obj.parent;
+        if(obj.userData.type && !obj.userData.dead) {
+            obj.userData.dead = true;
+            obj.rotation.z = Math.PI/2; // Tip over
+            score++;
+            document.getElementById('score').innerHTML = score;
+        }
+    }
+}
+
+let px, py, isD = false;
+const lArea = document.getElementById('look-area');
+lArea.ontouchstart = (e) => { isD = true; px = e.touches[0].clientX; py = e.touches[0].clientY; };
+lArea.ontouchmove = (e) => {
+    if(!isD) return;
+    let sens = isZoom ? 0.002 : 0.005;
+    yaw -= (e.touches[0].clientX - px) * sens;
+    pitch -= (e.touches[0].clientY - py) * sens;
+    pitch = Math.max(-1.4, Math.min(1.4, pitch));
+    px = e.touches[0].clientX; py = e.touches[0].clientY;
+};
+lArea.ontouchend = () => isD = false;
+
+function animate() {
+    requestAnimationFrame(animate);
+    const dir = new THREE.Vector3(keys.d - keys.a, 0, keys.s - keys.w).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+    camera.position.add(dir.multiplyScalar(0.18));
+    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    
+    targets.forEach(t => { 
+        if(!t.userData.dead) {
+            if(t.userData.type === 'wolf') { t.rotation.z += t.userData.turn; t.translateY(t.userData.speed); }
+            else { t.rotation.y += t.userData.turn; t.translateZ(t.userData.speed); }
+        }
+    });
+    renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
